@@ -7,9 +7,10 @@
   <style>
     :root { color-scheme: light; --navy:#163d5b; --blue:#eaf5fb; --line:#cbd8df; }
     * { box-sizing:border-box; }
-    body { margin:0; background:#f4f7f8; color:#17232b; font-family:system-ui,-apple-system,"Yu Gothic UI","Meiryo",sans-serif; }
+    body { margin:0; background:#f4f7f8; color:#17232b; font-family:"Meiryo","Yu Gothic UI",sans-serif; }
     main { max-width:620px; margin:0 auto; padding:28px 18px 42px; }
     h1 { color:var(--navy); font-size:25px; margin:0 0 8px; }
+    .service-name { color:var(--navy); font-size:25px; font-weight:700; margin:0 0 8px; }
     .lead { margin:0 0 22px; line-height:1.7; }
     .notice { background:#fff5d9; border-left:5px solid #e4a925; border-radius:6px; padding:12px 14px; font-size:14px; line-height:1.6; margin-bottom:20px; }
     section { background:#fff; border:1px solid var(--line); border-radius:12px; padding:20px; box-shadow:0 2px 8px #17344a0a; }
@@ -32,8 +33,10 @@
 </head>
 <body>
   <main>
+    <p class="service-name">ネクストワン専用</p>
     <h1>外壁面積・概算計算（建物1面）</h1>
     <p class="lead">足場のアンチ枚数と段数から、建物1面の外壁面積の目安を計算します。</p>
+    <p class="lead">塗料の缶数計算も自動でできます。</p>
     <p class="notice">今回のプログラム作成では開口部・建物の凹凸には対応してないので、これから作り直していきます。<br>中田</p>
 
     <section aria-label="計算条件">
