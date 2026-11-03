@@ -36,9 +36,20 @@
     .photo-picker input { height:1px; left:-9999px; opacity:0; position:absolute; width:1px; }
     .photo-preview { display:none; margin-top:16px; }
     .photo-preview.is-visible { display:block; }
-    .photo-preview img { background:#eef2f4; border:1px solid var(--line); border-radius:8px; display:block; max-height:420px; object-fit:contain; width:100%; }
+    .photo-stage { background:#eef2f4; border:1px solid var(--line); border-radius:8px; line-height:0; overflow:hidden; position:relative; }
+    .photo-stage img { display:block; height:auto; max-height:420px; object-fit:contain; width:100%; }
+    .photo-stage svg { cursor:crosshair; height:100%; inset:0; position:absolute; width:100%; }
     .photo-name { color:#53636d; font-size:13px; margin:8px 0 10px; overflow-wrap:anywhere; }
-    .remove-photo { background:#fff; border:1px solid #8b9aa3; border-radius:7px; color:#24343e; cursor:pointer; font:inherit; padding:9px 13px; }
+    .photo-actions { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+    button { background:#fff; border:1px solid #8b9aa3; border-radius:7px; color:#24343e; cursor:pointer; font:inherit; padding:9px 13px; }
+    button:hover, button:focus { background:#eaf5fb; outline:3px solid #92d1ef; }
+    button.is-active { background:var(--navy); border-color:var(--navy); color:#fff; }
+    .measure-panel { background:#f4f9fc; border:1px solid #c8dce7; border-radius:8px; margin-top:12px; padding:14px; }
+    .measure-panel[hidden] { display:none; }
+    .measure-status { color:#384f5d; font-size:14px; line-height:1.6; margin:0 0 12px; }
+    .measure-result { background:#e9f5e8; border:1px solid #b9d8b7; border-radius:8px; color:#174b25; font-weight:700; line-height:1.6; margin:12px 0 0; padding:12px; }
+    .measure-result[hidden] { display:none; }
+    .measure-panel .field { margin-bottom:12px; }
   </style>
 </head>
 <body>
@@ -106,9 +117,29 @@
           <input id="photoInput" type="file" accept="image/*" capture="environment">
         </label>
         <div id="photoPreview" class="photo-preview">
-          <img id="photoImage" alt="選択した現場写真">
+          <div id="photoStage" class="photo-stage">
+            <img id="photoImage" alt="選択した現場写真">
+            <svg id="photoOverlay" aria-label="写真上の計測用マーク" role="img"></svg>
+          </div>
           <p id="photoName" class="photo-name"></p>
-          <button id="removePhoto" class="remove-photo" type="button">写真を消す</button>
+          <div class="photo-actions">
+            <button id="startScale" type="button">1. 基準高さを設定</button>
+            <button id="startOutline" type="button" disabled>2. 壁の輪郭をなぞる</button>
+            <button id="undoPoint" type="button" disabled>1点戻す</button>
+            <button id="clearMarks" type="button">マークを消す</button>
+            <button id="removePhoto" type="button">写真を消す</button>
+          </div>
+          <div id="measurePanel" class="measure-panel" hidden>
+            <p id="measureStatus" class="measure-status"></p>
+            <div id="heightField" class="field" hidden>
+              <label for="knownHeight">2点の実際の高さ</label>
+              <input id="knownHeight" type="number" min="0" step="0.01" inputmode="decimal" placeholder="例：8">
+              <span class="unit">m</span>
+              <button id="applyScale" type="button">縮尺を設定する</button>
+            </div>
+            <button id="finishOutline" type="button" hidden>輪郭を閉じて面積を計算</button>
+            <p id="measureResult" class="measure-result" hidden></p>
+          </div>
         </div>
       </div>
     </section>
@@ -138,7 +169,57 @@
     const photoPreview = document.getElementById("photoPreview");
     const photoImage = document.getElementById("photoImage");
     const photoName = document.getElementById("photoName");
+    const photoStage = document.getElementById("photoStage");
+    const photoOverlay = document.getElementById("photoOverlay");
+    const startScale = document.getElementById("startScale");
+    const startOutline = document.getElementById("startOutline");
+    const undoPoint = document.getElementById("undoPoint");
+    const clearMarks = document.getElementById("clearMarks");
+    const measurePanel = document.getElementById("measurePanel");
+    const measureStatus = document.getElementById("measureStatus");
+    const heightField = document.getElementById("heightField");
+    const knownHeight = document.getElementById("knownHeight");
+    const applyScale = document.getElementById("applyScale");
+    const finishOutline = document.getElementById("finishOutline");
+    const measureResult = document.getElementById("measureResult");
     let photoUrl = null;
+    let mode = "";
+    let scalePoints = [];
+    let outlinePoints = [];
+    let metersPerPixel = 0;
+
+    function message(text) {
+      measurePanel.hidden = false;
+      measureStatus.textContent = text;
+    }
+    function svgPoint(point, color) {
+      return `<circle cx="${point.x}" cy="${point.y}" r="7" fill="${color}" stroke="#fff" stroke-width="3"/>`;
+    }
+    function drawMarks(closed = false) {
+      const line = (points, color, close) => points.length > 1
+        ? `<polyline points="${points.map(p => `${p.x},${p.y}`).join(" ")}${close ? ` ${points[0].x},${points[0].y}` : ""}" fill="${close ? "#2f9e4455" : "none"}" stroke="${color}" stroke-width="5" stroke-linejoin="round"/>`
+        : "";
+      photoOverlay.innerHTML = line(scalePoints, "#e65100", false) + scalePoints.map(p => svgPoint(p, "#e65100")).join("") + line(outlinePoints, "#1a73b8", closed) + outlinePoints.map(p => svgPoint(p, "#1a73b8")).join("");
+      undoPoint.disabled = !scalePoints.length && !outlinePoints.length;
+    }
+    function resetMeasurement() {
+      mode = ""; scalePoints = []; outlinePoints = []; metersPerPixel = 0;
+      startScale.classList.remove("is-active"); startOutline.classList.remove("is-active");
+      startOutline.disabled = true; undoPoint.disabled = true;
+      heightField.hidden = true; finishOutline.hidden = true; measureResult.hidden = true;
+      drawMarks();
+    }
+    function setScale() {
+      const realHeight = Number(knownHeight.value);
+      const pixelHeight = scalePoints.length === 2 ? Math.hypot(scalePoints[1].x - scalePoints[0].x, scalePoints[1].y - scalePoints[0].y) : 0;
+      if (!(realHeight > 0) || !(pixelHeight > 0)) { message("実際の高さを0より大きい数字で入力してください。"); return; }
+      metersPerPixel = realHeight / pixelHeight;
+      mode = ""; startScale.classList.remove("is-active"); startOutline.disabled = false; heightField.hidden = true;
+      message(`縮尺を設定しました（1 px = ${metersPerPixel.toFixed(5)} m）。次に「2. 壁の輪郭をなぞる」を押してください。`);
+    }
+    function polygonArea(points) {
+      return Math.abs(points.reduce((sum, p, i) => { const q = points[(i + 1) % points.length]; return sum + p.x * q.y - q.x * p.y; }, 0) / 2);
+    }
 
     function clearPhoto() {
       if (photoUrl) URL.revokeObjectURL(photoUrl);
@@ -147,6 +228,8 @@
       photoImage.removeAttribute("src");
       photoName.textContent = "";
       photoPreview.classList.remove("is-visible");
+      measurePanel.hidden = true;
+      resetMeasurement();
     }
 
     photoInput.addEventListener("change", () => {
@@ -157,8 +240,42 @@
       photoImage.src = photoUrl;
       photoName.textContent = file.name;
       photoPreview.classList.add("is-visible");
+      photoImage.onload = () => {
+        photoOverlay.setAttribute("viewBox", `0 0 ${photoImage.naturalWidth} ${photoImage.naturalHeight}`);
+        resetMeasurement();
+        message("「1. 基準高さを設定」を押して、写真上の上下2点を選んでください。");
+      };
     });
     document.getElementById("removePhoto").addEventListener("click", clearPhoto);
+    startScale.addEventListener("click", () => {
+      resetMeasurement(); mode = "scale"; startScale.classList.add("is-active");
+      message("写真上の、実際の高さが分かる同じ壁面の上端と下端を2点タップしてください。");
+    });
+    startOutline.addEventListener("click", () => {
+      mode = "outline"; outlinePoints = []; drawMarks(); startOutline.classList.add("is-active");
+      finishOutline.hidden = false; measureResult.hidden = true;
+      message("壁の角を順番にタップしてください。最後に「輪郭を閉じて面積を計算」を押します。");
+    });
+    photoOverlay.addEventListener("click", event => {
+      if (!mode) return;
+      const box = photoStage.getBoundingClientRect();
+      const point = { x: (event.clientX - box.left) * photoImage.naturalWidth / box.width, y: (event.clientY - box.top) * photoImage.naturalHeight / box.height };
+      if (mode === "scale" && scalePoints.length < 2) {
+        scalePoints.push(point); drawMarks();
+        if (scalePoints.length === 2) { heightField.hidden = false; message("2点を選びました。実際の高さをmで入力し、「縮尺を設定する」を押してください。"); }
+      } else if (mode === "outline") { outlinePoints.push(point); drawMarks(); }
+    });
+    applyScale.addEventListener("click", setScale);
+    finishOutline.addEventListener("click", () => {
+      if (outlinePoints.length < 3 || !metersPerPixel) { message("輪郭は3点以上選び、先に縮尺を設定してください。"); return; }
+      const area = polygonArea(outlinePoints) * metersPerPixel * metersPerPixel;
+      drawMarks(true); mode = ""; startOutline.classList.remove("is-active"); finishOutline.hidden = true;
+      measureResult.textContent = `写真からの外壁面積（手動・概算）：${area.toLocaleString("ja-JP", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ㎡`;
+      measureResult.hidden = false;
+      message("輪郭を閉じて面積を計算しました。遠近のある写真では誤差が出るため、現地寸法でも確認してください。");
+    });
+    undoPoint.addEventListener("click", () => { if (mode === "scale") scalePoints.pop(); else outlinePoints.pop(); drawMarks(); });
+    clearMarks.addEventListener("click", () => { resetMeasurement(); message("マークを消しました。もう一度、基準高さの設定から始めてください。"); });
   </script>
 </body>
 </html>
